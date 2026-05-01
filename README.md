@@ -50,8 +50,11 @@ The optional analysis tools (semgrep, zizmor, git-pkgs, brief) are bundled in th
 - **Skill HTTP API** -- running skills can call back into scrutineer to list prior scans and enqueue further skills; surface documented in `openapi.yaml`
 - **Organisation rollup** -- repos, findings, and maintainers grouped by owning org, with per-org markdown exports
 - **Usage tracking** -- per-scan token and cost figures plus a `/usage` page totalling spend per skill
+- **SBOM import** -- upload a CycloneDX or SPDX document, resolve each component to a source repository, and queue scans automatically
+- **CNA matching** -- identify the CVE Numbering Authority whose scope covers a repo so disclosures go to the right contact
+- **Reachability analysis** -- trace sinks found in dependencies through application code to see which are actually reachable
 - **Rescan dedup** -- findings carry a content fingerprint so re-running a scan updates existing rows instead of creating duplicates
-- **Markdown report export** -- download a single consolidated `report.md` per repository covering threat model, findings (with six-step prose), packages, advisories, dependents, maintainers
+- **Markdown report export** -- download a single consolidated `report.md` per repository or organisation
 
 ## The default pipeline
 
@@ -75,6 +78,8 @@ When a repo is added, the `triage` skill is enqueued. Its SKILL.md lists the ski
 | `verify` | Re-checks one finding against current HEAD; records reproduces / fixed / can't-reproduce |
 | `disclose` | Drafts a GHSA-shaped advisory (title, description, CVSS, CWEs, references) for one finding |
 | `patch` | Proposes a unified diff fixing one finding, written back as a note for analyst review |
+| `reachability` | Traces dependency sinks through application code to determine which are reachable from trust boundaries |
+| `cna-match` | Matches a repository to its CVE Numbering Authority so disclosures route to the right contact |
 
 Edit `skills/triage/SKILL.md` to change what gets run by default. Drop new skill directories in `skills/` to add scan types; no code changes needed.
 
@@ -103,6 +108,7 @@ Every index page has a search box plus filter and sort dropdowns; the specifics 
 - **Packages** -- registry entries discovered across all repos.
 - **Advisories** -- known CVEs and security advisories pulled for any scanned package.
 - **Maintainers** -- people identified as maintainers, with their linked repos and findings.
+- **SBOMs** -- uploaded CycloneDX/SPDX documents. Each component is resolved to a source repository and can be imported for scanning.
 - **Scans** -- every scan that has run. Running or queued scans can be cancelled; failed ones retried.
 - **Skills** -- installed skills from disk and from the UI; view, edit, or run any of them.
 - **Usage** -- token and cost totals across all scans, broken down by skill.

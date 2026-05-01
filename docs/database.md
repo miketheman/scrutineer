@@ -292,6 +292,78 @@ Join table. No extra columns.
 | maintainer_id | integer FK | |
 | repository_id | integer FK | |
 
+## subprojects
+
+Monorepo sub-paths discovered by the `subprojects` skill.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | integer PK | |
+| repository_id | integer FK | |
+| path | text, not null | Sub-folder relative to repo root. The root itself is represented by absence of a row, not an empty path. |
+| name | text | Short human label; falls back to the last path segment. |
+| kind | text | Detected flavour: `go-module`, `npm-workspace`, `python-package`, `rust-crate`, `composer-package`, `monorepo-root`, etc. Free-form. |
+| description | text | |
+| created_at | datetime | |
+| updated_at | datetime | |
+
+## sbom_uploads
+
+User-uploaded CycloneDX or SPDX documents. Packages are replaced wholesale on re-upload (cascade delete) but resolved repository rows survive so prior scan results stay attached.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | integer PK | |
+| name | text | Display name for the upload. |
+| filename | text | Original filename. |
+| format | text | `CycloneDX` or `SPDX`. |
+| spec_version | text | e.g. `1.5`. |
+| raw | blob | The original document bytes. |
+| package_count | integer | Denormalised count of components. |
+| created_at | datetime | |
+| updated_at | datetime | |
+
+## sbom_packages
+
+One component from an uploaded SBOM. `repository_id` is set asynchronously once the PURL resolves to a source repo.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | integer PK | |
+| sbom_upload_id | integer FK | Cascade delete. |
+| name | text | |
+| version | text | |
+| p_url | text | Package URL. Indexed. |
+| ecosystem | text | |
+| license | text | |
+| scope | text | `direct`, `transitive`, or empty when the document had no dependency graph. |
+| repository_id | integer FK, nullable | Set once resolved. References `repositories.id`. |
+| resolve_error | text | Error message if PURL resolution failed. |
+| created_at | datetime | |
+
+## cnas
+
+CVE Numbering Authorities from the public cve.org partner list. Used by the `cna-match` skill to route disclosures.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | integer PK | |
+| short_name | text, unique | e.g. `GitHub_M`. |
+| cna_id | text | cve.org CNA identifier. |
+| organization | text | Full org name. |
+| scope | text | Free-text coverage description as published. |
+| email | text | Security contact email. |
+| contact_url | text | |
+| policy_url | text | |
+| advisory_url | text | |
+| root | text | Root CNA if this is a sub-CNA. |
+| types | text | |
+| country | text | |
+| metadata | text | Full upstream JSON. |
+| fetched_at | datetime | When the CNA list was last refreshed. |
+| created_at | datetime | |
+| updated_at | datetime | |
+
 ## goqite
 
 Job queue managed by the goqite library. Not accessed directly by application code except through the queue package.
