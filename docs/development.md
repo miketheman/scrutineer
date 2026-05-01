@@ -8,7 +8,8 @@
       db.go                  Repository, Scan, Skill, Finding + sibling tables
                              (FindingLabel, FindingNote, FindingCommunication,
                               FindingReference, FindingHistory), Dependency,
-                              Package, Dependent, Advisory, Maintainer
+                              Package, Dependent, Advisory, Maintainer,
+                              Subproject, SBOMUpload, SBOMPackage, CNA
       finding_helpers.go     WriteFindingField, AddFindingNote,
                              AddFindingCommunication, AddFindingReference,
                              SetFindingLabels, SeedDefaultLabels
@@ -35,15 +36,23 @@
       api_finding_writes.go  PATCH/POST/PUT for finding notes, communications,
                              references, labels, field updates, history
       finding_forms.go       browser-form analogues of the api finding writes
+      finding_patch.go       patch scan lookup and diff download
       skills_handlers.go     /skills UI routes
       repo_report.go         markdown report export per repository
+      org_report.go          markdown report export per organisation
+      org_summary.go         organisation summary page
+      sboms.go               SBOM upload, list, and component resolution
+      usage.go               per-skill token and cost totals
+      theme.go               colour scheme cookie + dark mode toggle
+      parse_repo_url.go      git URL to forge web URL conversion
+      api_export.go          bulk JSON export endpoints
       sse.go                 SSE broker, splits data lines per spec
       cwe.go + cwe.json      embedded MITRE CWE catalogue (944 entries)
       models.go              model pick list, swappable from config
       location.go            forge URL builder for source links
       jsontree.go            JSON-to-HTML renderer for the Data tab
       templates/             html/template files
-      static/                theme CSS, favicon
+      static/                theme CSS, app.js, favicon
 
 ## Running tests
 
