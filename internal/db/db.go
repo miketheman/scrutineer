@@ -333,14 +333,15 @@ type Finding struct {
 	MissedCount      int
 	LastMissedScanID uint
 
-	FindingID string // e.g. F1, F2 within the report
-	Sinks     string // comma-joined sink IDs
-	Title     string
-	Severity  string           `gorm:"index"`
-	Status    FindingLifecycle `gorm:"index;default:new"`
-	CWE       string
-	Location  string
-	Affected  string // version range
+	FindingID  string // e.g. F1, F2 within the report
+	Sinks      string // comma-joined sink IDs
+	Title      string
+	Severity   string           `gorm:"index"`
+	Confidence string           `gorm:"index"` // high/medium/low; how certain the audit is
+	Status     FindingLifecycle `gorm:"index;default:new"`
+	CWE        string
+	Location   string
+	Affected   string // version range
 	// Reachability records whether a public entry point in the shipped
 	// artefact reaches the sink with attacker-controlled input
 	// (reachable), only a test driver does (harness_only), or the audit
@@ -490,6 +491,13 @@ type Skill struct {
 	OutputKind string `gorm:"index"` // from metadata["scrutineer.output_kind"]
 	MaxTurns   int    // from metadata["scrutineer.max_turns"]
 	Model      string // from metadata["scrutineer.model"]; empty = use scan/server default
+	// Thresholds: MinConfidence drops findings below the given confidence
+	// before they are written; FailOn marks the scan failed if any
+	// finding's severity is at or above it; ReportOn is the default
+	// severity floor for the repo findings tab. All optional.
+	MinConfidence string
+	ReportOn      string
+	FailOn        string
 
 	Version int  `gorm:"not null;default:1"`
 	Active  bool `gorm:"not null;default:true"`

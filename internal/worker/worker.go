@@ -161,6 +161,11 @@ func (w *Worker) wrap(h handler) func(context.Context, []byte) error {
 				scan.Status = db.ScanDone
 				scan.Report = report
 				emit(Event{Kind: KindText, Text: "scan completed (hit max turns cap)"})
+			} else if _, ok := errors.AsType[*FailOnThresholdError](err); ok {
+				scan.Status = db.ScanFailed
+				scan.Report = report
+				scan.Error = err.Error()
+				emit(Event{Kind: KindError, Text: err.Error()})
 			} else {
 				scan.Status = db.ScanFailed
 				scan.Error = err.Error()

@@ -135,7 +135,7 @@ func (w *Worker) doSkill(ctx context.Context, scan *db.Scan, emit func(Event)) (
 func (w *Worker) parseSkillOutput(skill *db.Skill, scan *db.Scan, report string, emit func(Event)) error {
 	switch skill.OutputKind {
 	case "findings":
-		return w.parseFindingsOutput(scan, report, emit)
+		return w.parseFindingsOutput(skill, scan, report, emit)
 	case "maintainers":
 		return w.parseMaintainersOutput(scan, report, emit)
 	case "repo_metadata":
@@ -184,18 +184,35 @@ func (w *Worker) clearCloneError(scan *db.Scan) {
 // Findings are deduped against prior scans of the same repository by
 // fingerprint: a match bumps last-seen on the existing row instead of
 // creating a duplicate, so analyst triage state survives a rescan (#75).
-func (w *Worker) parseFindingsOutput(scan *db.Scan, report string, emit func(Event)) error {
+func (w *Worker) parseFindingsOutput(skill *db.Skill, scan *db.Scan, report string, emit func(Event)) error {
 	rep, err := parseReport([]byte(report))
 	if err != nil {
 		return err
 	}
 	findings := rep.toFindings(scan.ID, scan.RepositoryID, scan.Commit, scan.SubPath)
+
+	if skill.MinConfidence != "" {
+		kept := findings[:0]
+		for _, f := range findings {
+			if db.ConfidenceAtLeast(f.Confidence, skill.MinConfidence) {
+				kept = append(kept, f)
+			}
+		}
+		if dropped := len(findings) - len(kept); dropped > 0 {
+			emit(Event{Kind: KindText, Text: fmt.Sprintf("dropped %d finding(s) below min_confidence=%s", dropped, skill.MinConfidence)})
+		}
+		findings = kept
+	}
 	scan.FindingsCount = len(findings)
 
+	worst := ""
 	created, observed := 0, 0
 	seenThisScan := map[string]bool{}
 	for i := range findings {
 		f := &findings[i]
+		if db.SeverityAtLeast(f.Severity, worst) || worst == "" {
+			worst = f.Severity
+		}
 		f.Fingerprint = db.FingerprintFinding(scan.SkillName, f.SubPath, f.CWE, f.Location, f.Title)
 		f.LastSeenScanID = scan.ID
 		f.LastSeenCommit = scan.Commit
@@ -239,7 +256,24 @@ func (w *Worker) parseFindingsOutput(scan *db.Scan, report string, emit func(Eve
 
 	emit(Event{Kind: KindText, Text: fmt.Sprintf("parsed %d finding(s): %d new, %d re-observed, %d not-observed",
 		len(findings), created, observed, missed)})
+
+	if db.SeverityAtLeast(worst, skill.FailOn) {
+		return &FailOnThresholdError{Worst: worst, Threshold: skill.FailOn}
+	}
 	return nil
+}
+
+// FailOnThresholdError is returned when a scan's findings include at
+// least one at or above the skill's fail_on severity. wrap() treats it
+// as a completed run (the report is saved) that is marked failed so
+// the repo list shows red.
+type FailOnThresholdError struct {
+	Worst     string
+	Threshold string
+}
+
+func (e *FailOnThresholdError) Error() string {
+	return fmt.Sprintf("%s-severity finding meets fail_on=%s", e.Worst, e.Threshold)
 }
 
 // markNotObserved bumps MissedCount on open findings that this scan was

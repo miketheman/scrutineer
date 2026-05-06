@@ -34,6 +34,7 @@ type scanFinding struct {
 	Sinks        []string `json:"sinks"`
 	Title        string   `json:"title"`
 	Severity     string   `json:"severity"`
+	Confidence   string   `json:"confidence"`
 	CWE          string   `json:"cwe"`
 	Location     string   `json:"location"`
 	Affected     string   `json:"affected"`
@@ -51,9 +52,8 @@ type scanFinding struct {
 	Rating     string `json:"rating"`
 
 	// Legacy fields (old schema)
-	Confidence string `json:"confidence"`
-	Summary    string `json:"summary"`
-	Details    string `json:"details"`
+	Summary string `json:"summary"`
+	Details string `json:"details"`
 }
 
 func parseReport(raw []byte) (scanReport, error) {
@@ -76,6 +76,7 @@ func (r scanReport) toFindings(scanID, repoID uint, commit, subPath string) []db
 			Sinks:        strings.Join(f.Sinks, ", "),
 			Title:        f.Title,
 			Severity:     f.Severity,
+			Confidence:   strings.ToLower(f.Confidence),
 			CWE:          f.CWE,
 			Location:     f.Location,
 			Affected:     f.Affected,

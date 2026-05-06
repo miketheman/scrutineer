@@ -345,6 +345,55 @@ body`)
 	}
 }
 
+func TestParseFile_thresholdKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := writeSkill(t, dir, "thresh", `---
+name: thresh
+description: d
+metadata:
+  scrutineer.min_confidence: medium
+  scrutineer.report_on: Low
+  scrutineer.fail_on: High
+---
+body`)
+	p, err := ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.MinConfidence != "medium" || p.ReportOn != "Low" || p.FailOn != "High" {
+		t.Errorf("thresholds not extracted: %+v", p)
+	}
+	m, _ := p.ToModel("local")
+	if m.MinConfidence != "medium" || m.FailOn != "High" {
+		t.Errorf("ToModel did not carry thresholds: %+v", m)
+	}
+}
+
+func TestParseFile_rejectsBadThresholdValues(t *testing.T) {
+	dir := t.TempDir()
+	path := writeSkill(t, dir, "badconf", `---
+name: badconf
+description: d
+metadata:
+  scrutineer.min_confidence: maybe
+---
+body`)
+	if _, err := ParseFile(path); err == nil || !strings.Contains(err.Error(), "not a valid level") {
+		t.Errorf("expected min_confidence enum error, got %v", err)
+	}
+
+	path = writeSkill(t, dir, "badfail", `---
+name: badfail
+description: d
+metadata:
+  scrutineer.fail_on: extreme
+---
+body`)
+	if _, err := ParseFile(path); err == nil || !strings.Contains(err.Error(), "not a valid level") {
+		t.Errorf("expected fail_on enum error, got %v", err)
+	}
+}
+
 func TestLoadDirectory_bundledSkillsAreValid(t *testing.T) {
 	gdb, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {

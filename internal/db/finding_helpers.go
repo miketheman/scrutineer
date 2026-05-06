@@ -41,6 +41,42 @@ func WriteFindingField(gdb *gorm.DB, findingID uint, field, newValue string, sou
 	}).Error
 }
 
+// confidenceLevels and severityLevels are ordered low to high; the
+// index is the rank used for threshold comparisons. An empty or
+// unknown value ranks below everything.
+var confidenceLevels = []string{"low", "medium", "high"}
+var severityLevels = []string{"Low", "Medium", "High", "Critical"}
+
+func rank(levels []string, v string) int {
+	for i, l := range levels {
+		if l == v {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// ConfidenceAtLeast reports whether got ranks at or above min on the
+// low/medium/high scale. A finding without a confidence value is
+// dropped when a min_confidence is set; an empty min disables the
+// check.
+func ConfidenceAtLeast(got, minimum string) bool {
+	if minimum == "" {
+		return true
+	}
+	return rank(confidenceLevels, got) >= rank(confidenceLevels, minimum)
+}
+
+// SeverityAtLeast reports whether got ranks at or above the threshold
+// on the Low/Medium/High/Critical scale. An empty threshold never
+// matches.
+func SeverityAtLeast(got, threshold string) bool {
+	if threshold == "" {
+		return false
+	}
+	return rank(severityLevels, got) >= rank(severityLevels, threshold)
+}
+
 // findingFieldAccessor maps the API-facing field name to the current
 // value and the DB column name. It is the single list of mutable fields;
 // adding a new editable field means adding it here.

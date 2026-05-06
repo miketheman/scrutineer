@@ -1,13 +1,97 @@
 package worker
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"scrutineer/internal/db"
 )
+
+func TestParseFindingsOutput_minConfidenceDropsBelowThreshold(t *testing.T) {
+	gdb, err := db.Open(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := db.Repository{URL: "https://x/r", Name: "r"}
+	gdb.Create(&repo)
+	scan := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "x", Status: db.ScanDone}
+	gdb.Create(scan)
+	w := &Worker{DB: gdb, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	report := `{"findings":[
+		{"id":"F1","title":"a","severity":"High","cwe":"CWE-1","location":"a.rb:1","confidence":"high"},
+		{"id":"F2","title":"b","severity":"High","cwe":"CWE-2","location":"b.rb:1","confidence":"low"},
+		{"id":"F3","title":"c","severity":"High","cwe":"CWE-3","location":"c.rb:1"}
+	]}`
+	skill := &db.Skill{MinConfidence: "medium"}
+	var lines []string
+	emit := func(e Event) { lines = append(lines, e.Text) }
+
+	if err := w.parseFindingsOutput(skill, scan, report, emit); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	gdb.Model(&db.Finding{}).Count(&n)
+	if n != 1 {
+		t.Errorf("stored %d findings, want 1 (only high-confidence)", n)
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "dropped 2 finding(s) below min_confidence=medium") {
+		t.Errorf("expected drop log line, got: %s", joined)
+	}
+}
+
+func TestParseFindingsOutput_failOnTriggers(t *testing.T) {
+	gdb, err := db.Open(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := db.Repository{URL: "https://x/r", Name: "r"}
+	gdb.Create(&repo)
+	scan := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "x", Status: db.ScanDone}
+	gdb.Create(scan)
+	w := &Worker{DB: gdb, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	report := `{"findings":[
+		{"id":"F1","title":"a","severity":"Medium","cwe":"CWE-1","location":"a.rb:1"},
+		{"id":"F2","title":"b","severity":"Critical","cwe":"CWE-2","location":"b.rb:1"}
+	]}`
+	skill := &db.Skill{FailOn: "High"}
+	err = w.parseFindingsOutput(skill, scan, report, func(Event) {})
+	var fe *FailOnThresholdError
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected FailOnThresholdError, got %v", err)
+	}
+	if fe.Worst != "Critical" || fe.Threshold != "High" {
+		t.Errorf("error fields: %+v", fe)
+	}
+	var n int64
+	gdb.Model(&db.Finding{}).Count(&n)
+	if n != 2 {
+		t.Errorf("findings should still be stored on fail_on, got %d", n)
+	}
+}
+
+func TestParseFindingsOutput_failOnNoTriggerBelowThreshold(t *testing.T) {
+	gdb, err := db.Open(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := db.Repository{URL: "https://x/r", Name: "r"}
+	gdb.Create(&repo)
+	scan := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "x", Status: db.ScanDone}
+	gdb.Create(scan)
+	w := &Worker{DB: gdb, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	report := `{"findings":[{"id":"F1","title":"a","severity":"Low","cwe":"CWE-1","location":"a.rb:1"}]}`
+	if err := w.parseFindingsOutput(&db.Skill{FailOn: "High"}, scan, report, func(Event) {}); err != nil {
+		t.Errorf("Low finding should not trigger fail_on=High: %v", err)
+	}
+}
 
 func TestParseFindingsOutput_dedupesAcrossScans(t *testing.T) {
 	gdb, err := db.Open(filepath.Join(t.TempDir(), "p.db"))
@@ -33,7 +117,7 @@ func TestParseFindingsOutput_dedupesAcrossScans(t *testing.T) {
 		{"id":"F2","title":"XSS in view","severity":"Medium","cwe":"CWE-79","location":"src/view.erb:10"}
 	]}`
 	s1 := mkScan("abc")
-	if err := w.parseFindingsOutput(s1, report1, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s1, report1, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,7 +136,7 @@ func TestParseFindingsOutput_dedupesAcrossScans(t *testing.T) {
 		{"id":"F3","title":"Path traversal","severity":"High","cwe":"CWE-22","location":"src/files.rb:5"}
 	]}`
 	s2 := mkScan("def")
-	if err := w.parseFindingsOutput(s2, report2, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s2, report2, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,7 +205,7 @@ func TestParseFindingsOutput_preservesAnalystStatusOnReobservation(t *testing.T)
 	report := `{"findings":[{"id":"F1","title":"noise","severity":"Low","cwe":"CWE-200","location":"x.go:1"}]}`
 	s1 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "semgrep", Status: db.ScanDone, Commit: "abc"}
 	gdb.Create(s1)
-	if err := w.parseFindingsOutput(s1, report, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s1, report, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +214,7 @@ func TestParseFindingsOutput_preservesAnalystStatusOnReobservation(t *testing.T)
 
 	s2 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "semgrep", Status: db.ScanDone, Commit: "def"}
 	gdb.Create(s2)
-	if err := w.parseFindingsOutput(s2, report, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s2, report, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -163,7 +247,7 @@ func TestParseFindingsOutput_intraScanCollisionCreatesOneRow(t *testing.T) {
 	]}`
 	s := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "k", Status: db.ScanDone, Commit: "abc"}
 	gdb.Create(s)
-	if err := w.parseFindingsOutput(s, report, func(Event) {}); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s, report, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,7 +277,7 @@ func TestParseFindingsOutput_notObservedScopedToSkillAndSubpath(t *testing.T) {
 	s1 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "security-deep-dive",
 		SubPath: "", Status: db.ScanDone, Commit: "abc"}
 	gdb.Create(s1)
-	if err := w.parseFindingsOutput(s1, report, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s1, report, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -201,7 +285,7 @@ func TestParseFindingsOutput_notObservedScopedToSkillAndSubpath(t *testing.T) {
 	s2 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "semgrep",
 		SubPath: "", Status: db.ScanDone, Commit: "abc"}
 	gdb.Create(s2)
-	if err := w.parseFindingsOutput(s2, `{"findings":[]}`, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s2, `{"findings":[]}`, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -210,7 +294,7 @@ func TestParseFindingsOutput_notObservedScopedToSkillAndSubpath(t *testing.T) {
 	s3 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "security-deep-dive",
 		SubPath: "pkg/foo", Status: db.ScanDone, Commit: "abc"}
 	gdb.Create(s3)
-	if err := w.parseFindingsOutput(s3, `{"findings":[]}`, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s3, `{"findings":[]}`, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,7 +308,7 @@ func TestParseFindingsOutput_notObservedScopedToSkillAndSubpath(t *testing.T) {
 	s4 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "security-deep-dive",
 		SubPath: "", Status: db.ScanDone, Commit: "def"}
 	gdb.Create(s4)
-	if err := w.parseFindingsOutput(s4, `{"findings":[]}`, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s4, `{"findings":[]}`, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -253,13 +337,13 @@ func TestParseFindingsOutput_reobservationResetsMissedCount(t *testing.T) {
 		return s
 	}
 
-	if err := w.parseFindingsOutput(mkScan("aaa"), report, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, mkScan("aaa"), report, emit); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.parseFindingsOutput(mkScan("bbb"), `{"findings":[]}`, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, mkScan("bbb"), `{"findings":[]}`, emit); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.parseFindingsOutput(mkScan("ccc"), `{"findings":[]}`, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, mkScan("ccc"), `{"findings":[]}`, emit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -270,7 +354,7 @@ func TestParseFindingsOutput_reobservationResetsMissedCount(t *testing.T) {
 	}
 
 	// Reappears: missed count resets, seen count is now 2.
-	if err := w.parseFindingsOutput(mkScan("ddd"), report, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, mkScan("ddd"), report, emit); err != nil {
 		t.Fatal(err)
 	}
 	gdb.First(&f)
@@ -296,14 +380,14 @@ func TestParseFindingsOutput_notObservedSkipsClosedFindings(t *testing.T) {
 	report := `{"findings":[{"id":"F1","title":"x","severity":"High","cwe":"CWE-89","location":"a.rb:1"}]}`
 	s1 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "k", Status: db.ScanDone, Commit: "abc"}
 	gdb.Create(s1)
-	if err := w.parseFindingsOutput(s1, report, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s1, report, emit); err != nil {
 		t.Fatal(err)
 	}
 	gdb.Model(&db.Finding{}).Where("repository_id = ?", repo.ID).Update("status", db.FindingFixed)
 
 	s2 := &db.Scan{RepositoryID: repo.ID, Kind: JobSkill, SkillName: "k", Status: db.ScanDone, Commit: "def"}
 	gdb.Create(s2)
-	if err := w.parseFindingsOutput(s2, `{"findings":[]}`, emit); err != nil {
+	if err := w.parseFindingsOutput(&db.Skill{}, s2, `{"findings":[]}`, emit); err != nil {
 		t.Fatal(err)
 	}
 

@@ -29,6 +29,44 @@ func seedFinding(t *testing.T, gdb *gorm.DB) Finding {
 	return f
 }
 
+func TestConfidenceAtLeast(t *testing.T) {
+	cases := []struct {
+		got, min string
+		want     bool
+	}{
+		{"high", "medium", true},
+		{"medium", "medium", true},
+		{"low", "medium", false},
+		{"", "low", false},
+		{"high", "", true},
+		{"garbage", "low", false},
+	}
+	for _, tc := range cases {
+		if r := ConfidenceAtLeast(tc.got, tc.min); r != tc.want {
+			t.Errorf("ConfidenceAtLeast(%q, %q) = %v, want %v", tc.got, tc.min, r, tc.want)
+		}
+	}
+}
+
+func TestSeverityAtLeast(t *testing.T) {
+	cases := []struct {
+		got, threshold string
+		want           bool
+	}{
+		{"Critical", "High", true},
+		{"High", "High", true},
+		{"Medium", "High", false},
+		{"Low", "Critical", false},
+		{"High", "", false},
+		{"", "Low", false},
+	}
+	for _, tc := range cases {
+		if r := SeverityAtLeast(tc.got, tc.threshold); r != tc.want {
+			t.Errorf("SeverityAtLeast(%q, %q) = %v, want %v", tc.got, tc.threshold, r, tc.want)
+		}
+	}
+}
+
 func TestWriteFindingField_logsHistory(t *testing.T) {
 	gdb := newTestDB(t)
 	f := seedFinding(t, gdb)

@@ -53,6 +53,10 @@
       "type": "string",
       "enum": ["Critical", "High", "Medium", "Low"]
     },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
     "sink_class": {
       "type": "string",
       "enum": [
@@ -139,6 +143,7 @@
         "sinks":         { "type": "array", "items": { "$ref": "#/$defs/sink_id" }, "minItems": 1 },
         "title":         { "type": "string" },
         "severity":      { "$ref": "#/$defs/severity" },
+        "confidence":    { "$ref": "#/$defs/confidence" },
         "cwe":           { "$ref": "#/$defs/cwe" },
         "location":      { "type": "string" },
         "affected":      { "type": "string" },

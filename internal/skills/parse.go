@@ -26,16 +26,19 @@ import (
 )
 
 const (
-	skillFile      = "SKILL.md"
-	schemaFile     = "schema.json"
-	maxNameLen     = 64
-	maxDescLen     = 1024
-	maxCompatLen   = 500
-	metaOutputFile = "scrutineer.output_file"
-	metaOutputKind = "scrutineer.output_kind"
-	metaMaxTurns   = "scrutineer.max_turns"
-	metaModel      = "scrutineer.model"
-	metaVersion    = "scrutineer.version"
+	skillFile         = "SKILL.md"
+	schemaFile        = "schema.json"
+	maxNameLen        = 64
+	maxDescLen        = 1024
+	maxCompatLen      = 500
+	metaOutputFile    = "scrutineer.output_file"
+	metaOutputKind    = "scrutineer.output_kind"
+	metaMaxTurns      = "scrutineer.max_turns"
+	metaModel         = "scrutineer.model"
+	metaVersion       = "scrutineer.version"
+	metaMinConfidence = "scrutineer.min_confidence"
+	metaReportOn      = "scrutineer.report_on"
+	metaFailOn        = "scrutineer.fail_on"
 
 	// SchemaVersion is the only scrutineer.version this build accepts.
 	// Skills omitting the key are treated as version 1. Bump when the
@@ -49,12 +52,18 @@ const (
 // parse time so a typo like scrutineer.outputkind surfaces immediately
 // rather than after a worker falls through to freeform.
 var scrutineerKeys = map[string]bool{
-	metaOutputFile: true,
-	metaOutputKind: true,
-	metaMaxTurns:   true,
-	metaModel:      true,
-	metaVersion:    true,
+	metaOutputFile:    true,
+	metaOutputKind:    true,
+	metaMaxTurns:      true,
+	metaModel:         true,
+	metaVersion:       true,
+	metaMinConfidence: true,
+	metaReportOn:      true,
+	metaFailOn:        true,
 }
+
+var confidenceLevels = map[string]bool{"low": true, "medium": true, "high": true}
+var severityLevels = map[string]bool{"Low": true, "Medium": true, "High": true, "Critical": true}
 
 // OutputKinds is the set of values scrutineer.output_kind may take.
 // "freeform" and the empty string both mean "store the report verbatim
@@ -94,12 +103,15 @@ type Parsed struct {
 	AllowedTools  string
 	Metadata      map[string]any
 
-	Body       string
-	SchemaJSON string
-	OutputFile string
-	OutputKind string
-	MaxTurns   int
-	Model      string
+	Body          string
+	SchemaJSON    string
+	OutputFile    string
+	OutputKind    string
+	MaxTurns      int
+	Model         string
+	MinConfidence string
+	ReportOn      string
+	FailOn        string
 
 	SourcePath string // absolute path to the skill directory
 	SourceHash string // sha256 of SKILL.md + schema.json contents
@@ -220,6 +232,30 @@ func (p *Parsed) validateMetadata() error {
 			return fmt.Errorf("%s must be an integer, got %T", metaMaxTurns, v)
 		}
 	}
+	if err := checkEnum(p.Metadata, metaMinConfidence, confidenceLevels); err != nil {
+		return err
+	}
+	if err := checkEnum(p.Metadata, metaReportOn, severityLevels); err != nil {
+		return err
+	}
+	if err := checkEnum(p.Metadata, metaFailOn, severityLevels); err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkEnum(m map[string]any, key string, allowed map[string]bool) error {
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("%s must be a string, got %T", key, v)
+	}
+	if !allowed[strings.TrimSpace(s)] {
+		return fmt.Errorf("%s %q is not a valid level", key, s)
+	}
 	return nil
 }
 
@@ -242,6 +278,15 @@ func (p *Parsed) extractMetadataKeys() {
 				p.Warnings = append(p.Warnings, fmt.Sprintf("model %q is not in the configured model list, ignoring", m))
 			}
 		}
+	}
+	if v, ok := p.Metadata[metaMinConfidence].(string); ok {
+		p.MinConfidence = strings.TrimSpace(v)
+	}
+	if v, ok := p.Metadata[metaReportOn].(string); ok {
+		p.ReportOn = strings.TrimSpace(v)
+	}
+	if v, ok := p.Metadata[metaFailOn].(string); ok {
+		p.FailOn = strings.TrimSpace(v)
 	}
 }
 
@@ -286,6 +331,9 @@ func (p *Parsed) ToModel(source string) (*db.Skill, error) {
 		OutputKind:    p.OutputKind,
 		MaxTurns:      p.MaxTurns,
 		Model:         p.Model,
+		MinConfidence: p.MinConfidence,
+		ReportOn:      p.ReportOn,
+		FailOn:        p.FailOn,
 		Active:        true,
 		Source:        source,
 		SourcePath:    p.SourcePath,
