@@ -34,6 +34,8 @@ Fetch each of these using your fetch tool. Each returns JSON. Include the reposi
 
 URL-encode the repository URL before substituting it into the query string.
 
+If all three lookups return empty or 404, fall back to `git -C ./src shortlog -sne --since='1 year ago'` plus `git -C ./src log --no-merges -20 --format='%aN <%aE>'` and classify from that alone; say so in `notes`.
+
 Also read `SECURITY.md`, `.github/SECURITY.md`, `CODEOWNERS`, and `README.md` in `./src` if they exist. These often name a security contact directly.
 
 ## How to classify
@@ -57,10 +59,10 @@ Pick the best one, based on what you found:
 - `SECURITY.md` email or contact block if present
 - GitHub Security Advisories if the repo is on GitHub and has advisories enabled
 - Registry owner contact if packages data surfaced one
-- Direct email to the identified lead if none of the above
+- The lead's git-log author email if none of the above; if it is a `noreply.github.com` address, skip it
 
 Put the concrete channel name or URL in `disclosure_channel`. Leave empty if nothing reliable was found.
 
 ## Output
 
-Write `./report.json` conforming to `./schema.json`. Include every classification decision you made, not just the top few. Use `notes` for anything a reviewer would want to know that does not fit the schema — bus factor, recent turnover, maintainer handoff, corporate sponsorship.
+Write `./report.json` conforming to `./schema.json`. Include every human you classified, not just the top few; bots stay out of the list (per the filter above) but mention in `notes` how many were dropped. Use `notes` for anything a reviewer would want to know that does not fit the schema — bus factor, recent turnover, maintainer handoff, corporate sponsorship.
