@@ -31,7 +31,7 @@ Authorization: Bearer {token}
 
 Each entry has `package`, `ecosystem`, `requirement`, `manifest_path`, `dependency_type`, `severity`, `cwe`, `title`, `location` (file:line inside the library), `sinks`, `trace`, `boundary`, `library_repository_url`, and `finding_id`. The list is ordered by severity. If it is empty, either the dependencies skill has not indexed this repo yet or none of its dependencies have findings; write `{"findings": [], "ruled_out": [], "inventory": [], ...}` per the schema and stop.
 
-Work the list top-down. Budget your time toward High and Medium; Low entries are mostly resource-exhaustion in parsers and only worth a quick grep.
+Work the list top-down. Budget your time toward High and Medium; Low entries are mostly resource-exhaustion in parsers and only worth a quick grep for the call site. A Low entry whose grep finds nothing goes in `ruled_out` with `step: 1` and `reason: "low severity, no call site on quick grep"`.
 
 ## Per-sink procedure
 
@@ -41,9 +41,9 @@ For each candidate, the question is fixed: does untrusted input from one of this
 
 Find where this app calls into `package`. Start from the `boundary` field on the candidate — it names the library entry point that leads to the sink (e.g. `Roo::Spreadsheet.open`, `Icalendar::Calendar.parse`, `PDF::Reader.new`). Grep `./src` for that symbol, the `require`/`import` of `package`, and obvious wrappers around it. If `scan_subpath` is set, scope to that folder.
 
-If the package is only in `Gemfile.lock` as a transitive dependency and nothing in `./src` calls it directly, check whether the app calls the intermediate package in a way that forwards input (e.g. crass via `sanitize`/loofah, sawyer via Octokit). If you cannot find a call path in two hops, rule it out: "transitive, no direct or one-hop call site".
+If the package is only in the lockfile as a transitive dependency and nothing in `./src` calls it directly, check whether the app calls the intermediate package in a way that forwards input (e.g. crass via `sanitize`/loofah, sawyer via Octokit; for npm, follow `package-lock.json` `packages` entries one level). If you cannot find a call path in two hops, rule it out: "transitive, no direct or one-hop call site".
 
-If `dependency_type` is `development` or the only call sites are under `test/`, `spec/`, or `script/`, rule it out: "development-only".
+If `dependency_type` is `development` (npm `devDependencies`, Bundler `:development`/`:test` groups, etc.) or the only call sites are under `test/`, `spec/`, `__tests__/`, or `script/`, rule it out: "development-only".
 
 ### 2. Trace to a boundary
 
@@ -56,7 +56,7 @@ From each call site, walk backwards to where the argument originates. You are lo
 
 Name the route, controller action, job class, or CLI entry point. Quote the line where external data enters and each hop to the library call.
 
-If every call site receives only operator-chosen constants, fixtures, or admin-only input, rule it out and say which. Admin-only still counts if the app has self-service signup that grants the relevant role.
+If every call site receives only operator-chosen constants, fixtures, or admin-only input, rule it out and say which. Exception: do not rule out admin-only input when the app has self-service signup that grants the relevant role; that is reachable.
 
 ### 3. Confirm the sink behaviour applies
 
