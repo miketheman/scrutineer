@@ -921,6 +921,10 @@ const (
 	// deepDiveSkillName is the skill whose reports feed the Summary, Findings
 	// and Threat Model tabs on the repository page.
 	deepDiveSkillName = "security-deep-dive"
+	// threatModelSkillName is the skill whose report feeds the Threat Model
+	// tab when present; repos that predate it fall back to the boundaries
+	// section of the deep-dive report so older scans keep rendering.
+	threatModelSkillName = "threat-model"
 )
 
 func (s *Server) addRepoAndScan(w http.ResponseWriter, r *http.Request, repoURL string) {
@@ -1398,27 +1402,38 @@ func (s *Server) repoShow(w http.ResponseWriter, r *http.Request) {
 		ORDER BY s.id DESC
 	`, repo.ID).Scan(&scans)
 
-	// The security-deep-dive skill owns the structured audit report; everything
-	// the Summary/Threat Model/Findings tabs render comes from its scans.
-	var latest *db.Scan
-	var threatModel map[string]any
+	// The security-deep-dive skill owns the structured audit report; the
+	// Summary and Findings tabs render from its scans. The Threat Model tab
+	// renders the threat-model skill's report when one exists, falling back
+	// to the deep-dive report's boundaries/inventory section so repositories
+	// scanned before the threat-model skill landed keep their tab content.
+	var latest, tmScan, tmFallback *db.Scan
 	for i := range scans {
-		if scans[i].SkillName != deepDiveSkillName {
-			continue
-		}
-		if latest == nil {
-			latest = &scans[i]
-			s.DB.Where("scan_id = ?", latest.ID).Find(&latest.Findings)
-		}
-		if scans[i].Status == db.ScanDone && scans[i].Report != "" && threatModel == nil {
-			var report map[string]any
-			if json.Unmarshal([]byte(scans[i].Report), &report) == nil {
-				threatModel = report
+		sc := &scans[i]
+		switch sc.SkillName {
+		case deepDiveSkillName:
+			if latest == nil {
+				latest = sc
+				s.DB.Where("scan_id = ?", latest.ID).Find(&latest.Findings)
+			}
+			if tmFallback == nil && sc.Status == db.ScanDone && sc.Report != "" {
+				tmFallback = sc
+			}
+		case threatModelSkillName:
+			if tmScan == nil && sc.Status == db.ScanDone && sc.Report != "" {
+				tmScan = sc
 			}
 		}
-		if latest != nil && threatModel != nil {
+		if latest != nil && tmScan != nil && tmFallback != nil {
 			break
 		}
+	}
+	if tmScan == nil {
+		tmScan = tmFallback
+	}
+	var threatModel map[string]any
+	if tmScan != nil {
+		_ = json.Unmarshal([]byte(tmScan.Report), &threatModel)
 	}
 
 	var totalCost float64
@@ -1456,8 +1471,8 @@ func (s *Server) repoShow(w http.ResponseWriter, r *http.Request) {
 
 	// Pass repo html_url and commit for location links in threat model
 	tmCommit := ""
-	if latest != nil {
-		tmCommit = latest.Commit
+	if tmScan != nil {
+		tmCommit = tmScan.Commit
 	}
 
 	var activeSkills []db.Skill
