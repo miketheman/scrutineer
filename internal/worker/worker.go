@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	JobSkill = "skill"
+	JobSkill    = "skill"
+	JobExposure = "exposure"
 
 	PrioScan     = 0
 	PrioFinding  = 2
@@ -78,6 +79,7 @@ func (w *Worker) workRoot(scanID uint) string {
 
 func (w *Worker) Register(q *queue.Queue) {
 	q.Register(JobSkill, w.wrap(w.doSkill))
+	q.Register(JobExposure, w.wrap(w.doExposure))
 }
 
 // handler does the actual work for one job kind. It receives the loaded scan
