@@ -118,7 +118,8 @@ One row per vulnerability. Lifecycle columns are mutated through `db.WriteFindin
 | confidence | text | `high`, `medium`, `low`; how certain the audit is. |
 | status | text | Lifecycle state: `new`, `enriched`, `triaged`, `ready`, `reported`, `acknowledged`, `fixed`, `published`, `rejected`, `duplicate`. |
 | cwe | text | e.g. `CWE-352`. Tooltips come from the embedded MITRE catalogue. |
-| location | text | `file:line` or `file:start-end`. |
+| location | text | Primary `file:line` or `file:start-end`. |
+| locations | text | Newline-joined set of every `file:line` that hit the same fingerprint in this scan. `location` is the first; the rest render as a `+N` badge and an expandable list on the finding page. Empty on rows that predate the column until the next rescan. |
 | reachability | text | `reachable`, `harness_only`, `unclear`. `harness_only` is a real bug but not disclosable as a vulnerability on its own. |
 | quality_tier | text | `high` (heap overflow, UAF, type confusion, controllable write, shell/eval injection) or `low` (stack exhaustion, assertion failure, fixed-offset null deref, log injection). |
 | affected | text | Version range, e.g. `>=0.2.0, <=4.0.5`. |

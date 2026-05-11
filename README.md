@@ -74,7 +74,7 @@ When the containerised runner is active (the default when Docker is available), 
 - **SBOM import** -- upload a CycloneDX or SPDX document, resolve each component to a source repository, and queue scans automatically
 - **CNA matching** -- identify the CVE Numbering Authority whose scope covers a repo so disclosures go to the right contact
 - **Reachability analysis** -- trace sinks found in dependencies through application code to see which are actually reachable
-- **Rescan dedup** -- findings carry a content fingerprint so re-running a scan updates existing rows instead of creating duplicates; findings that stop appearing are marked "not seen" with a miss count
+- **Rescan dedup** -- findings carry a content fingerprint so re-running a scan updates existing rows instead of creating duplicates; same-fingerprint hits within one scan collapse to a single finding with a `+N` expandable location list, and findings that stop appearing are marked "not seen" with a miss count
 - **CSAF export** -- download any finding as a schema-validated CSAF 2.0 advisory document
 - **JSONL export** -- stream all findings or scans as line-delimited JSON for ingestion elsewhere
 - **Markdown report export** -- download a single consolidated `report.md` per repository or organisation
